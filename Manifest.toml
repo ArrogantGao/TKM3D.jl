@@ -1,0 +1,10 @@
+# This file is machine-generated - editing it directly is not advised
+
+julia_version = "1.12.5"
+manifest_format = "2.0"
+project_hash = "fa1cfa71d6257ebd3c62c766482aad9ffcfef0d4"
+
+[[deps.TKM3D]]
+path = "."
+uuid = "5e3dfc9c-492c-4308-90e6-1b6681d75e39"
+version = "1.0.0-DEV"
