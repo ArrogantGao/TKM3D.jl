@@ -577,14 +577,14 @@ function ltkm3dd(
     gradtarg = nothing
 
     if pg > 0
-        pot, grad, selfconst = _ltkm3dd_eval(src, q, src, windowhat, lw, kmax, eps; need_grad = (pg == 2), return_selfconst = true)
+        pot, grad, selfconst = _ltkm3dd_eval_spreadonly(src, q, src, windowhat, lw, kmax, eps; need_grad = (pg == 2), return_selfconst = true)
         pot .-= q .* selfconst
     end
 
     if pgt > 0
         isnothing(targets) && throw(ArgumentError("targets are required when pgt > 0"))
         trg = as_3xn(targets)
-        pottarg, gradtarg, _ = _ltkm3dd_eval(src, q, trg, windowhat, lw, kmax, eps; need_grad = (pgt == 2))
+        pottarg, gradtarg, _ = _ltkm3dd_eval_spreadonly(src, q, trg, windowhat, lw, kmax, eps; need_grad = (pgt == 2))
     elseif !isnothing(targets)
         as_3xn(targets)
     end

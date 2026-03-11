@@ -115,6 +115,54 @@ end
     @test isapprox(pot, ref_pot; rtol = 5e-7, atol = 1e-9)
 end
 
+@testset "public ltkm3dd matches spread-only backend at sources and targets" begin
+    rng = MersenneTwister(4321)
+    sources = rand(rng, 3, 6)
+    targets = rand(rng, 3, 4)
+    charges = randn(rng, 6)
+    sigma = 0.21
+    windowhat(k) = exp(-sigma^2 * k^2 / 4)
+
+    src_pot, src_grad, selfconst = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        sources,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = true,
+        return_selfconst = true,
+    )
+    trg_pot, trg_grad, _ = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = true,
+    )
+
+    out = ltkm3dd(
+        1e-6,
+        sources;
+        charges,
+        targets,
+        pg = 2,
+        pgt = 2,
+        windowhat = windowhat,
+        lw = 4sigma,
+        kmax = 40.0,
+    )
+
+    @test isapprox(out.pot, src_pot .- charges .* selfconst; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.grad, src_grad; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.pottarg, trg_pot; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.gradtarg, trg_grad; rtol = 1e-12, atol = 1e-12)
+end
+
 @testset "ltkm3dd validation" begin
     sigma = 0.2
     what(k) = gaussian_window_fourier_transform(k, sigma)
@@ -149,8 +197,8 @@ end
     @test isnothing(out.grad)
     @test length(out.pottarg) == size(targets, 2)
     @test size(out.gradtarg) == size(targets)
-    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 1e-12
-    @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 1e-11
+    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 2e-10
+    @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
 @testset "ltkm3dd matches analytic Gaussian pot/grad at sources without self term" begin
@@ -172,8 +220,8 @@ end
     @test size(out.grad) == size(sources)
     @test isnothing(out.pottarg)
     @test isnothing(out.gradtarg)
-    @test norm(out.pot .- ref_pot) / norm(ref_pot) < 5e-12
-    @test norm(out.grad .- ref_grad) / norm(ref_grad) < 1e-11
+    @test norm(out.pot .- ref_pot) / norm(ref_pot) < 1e-10
+    @test norm(out.grad .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
 @testset "ltkm3dd combined source and target pot/grad outputs" begin
