@@ -1,3 +1,7 @@
+function _ltkm3dd_spreadonly_upsampfac(nmodes::NTuple{3, Int}, eps::Real)
+    return 1.0001
+end
+
 """
     _ltkm3dd_eval(sources, charges, targets, windowhat, lw, kmax, eps;
                   need_grad=false, return_selfconst=false)

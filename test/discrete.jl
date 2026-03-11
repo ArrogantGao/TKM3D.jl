@@ -62,6 +62,11 @@ function gaussian_kmax_from_tol(sigma::Float64, tail_tol::Float64)
     return 2.0 * sqrt(log(1.0 / tail_tol)) / sigma
 end
 
+@testset "spread-only upsampfac selection" begin
+    sigma = TKM3D._ltkm3dd_spreadonly_upsampfac((17, 19, 21), 1e-12)
+    @test sigma > 1.0
+end
+
 @testset "ltkm3dd validation" begin
     sigma = 0.2
     what(k) = gaussian_window_fourier_transform(k, sigma)
