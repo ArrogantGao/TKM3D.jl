@@ -81,6 +81,40 @@ end
     TKM3D.FINUFFT.finufft_destroy!(plan)
 end
 
+@testset "spread-only backend matches exact backend at targets" begin
+    rng = MersenneTwister(1234)
+    sources = rand(rng, 3, 7)
+    targets = rand(rng, 3, 5)
+    charges = randn(rng, 7)
+    sigma = 0.18
+    windowhat(k) = exp(-sigma^2 * k^2 / 4)
+
+    ref_pot, ref_grad, _ = TKM3D._ltkm3dd_eval_exact(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = false,
+    )
+    pot, grad, _ = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = false,
+    )
+
+    @test grad === nothing
+    @test ref_grad === nothing
+    @test isapprox(pot, ref_pot; rtol = 5e-7, atol = 1e-9)
+end
+
 @testset "ltkm3dd validation" begin
     sigma = 0.2
     what(k) = gaussian_window_fourier_transform(k, sigma)
