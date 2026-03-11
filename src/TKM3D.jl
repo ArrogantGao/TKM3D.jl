@@ -9,6 +9,7 @@ export ltkm3dd, ltkm3dc, TKMVals
 
 include("common.jl")
 include("discrete.jl")
+include("discrete_spreadonly.jl")
 include("continuous.jl")
 
 end

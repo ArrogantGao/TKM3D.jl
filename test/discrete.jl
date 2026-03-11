@@ -121,7 +121,7 @@ end
     @test isapprox(pot, ref_pot; rtol = 5e-7, atol = 1e-9)
 end
 
-@testset "public ltkm3dd matches spread-only backend at sources and targets" begin
+@testset "public ltkm3dd matches exact backend at sources and targets" begin
     rng = MersenneTwister(4321)
     sources = rand(rng, 3, 6)
     targets = rand(rng, 3, 4)
@@ -129,7 +129,7 @@ end
     sigma = 0.21
     windowhat(k) = exp(-sigma^2 * k^2 / 4)
 
-    src_pot, src_grad, selfconst = TKM3D._ltkm3dd_eval_spreadonly(
+    src_pot, src_grad, selfconst = TKM3D._ltkm3dd_eval_exact(
         sources,
         charges,
         sources,
@@ -140,7 +140,7 @@ end
         need_grad = true,
         return_selfconst = true,
     )
-    trg_pot, trg_grad, _ = TKM3D._ltkm3dd_eval_spreadonly(
+    trg_pot, trg_grad, _ = TKM3D._ltkm3dd_eval_exact(
         sources,
         charges,
         targets,
