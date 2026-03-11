@@ -108,9 +108,9 @@ Instead it uses the `FINUFFT` guru interface in spread/interpolate-only mode:
 
 The fine-grid sizes are chosen with the same `next235even(max(ceil(σ m), 2nspread))`
 logic used by `FINUFFT`, with the internal spread-only upsampling factor set to
-`1.0001`. The current local `FINUFFT` build rejects exact `upsampfac = 1.0` in
-spread-only mode, so the implementation uses the smallest accepted value above
-`1`.
+`1.00001`. The current local `FINUFFT` build rejects exact `upsampfac = 1.0` in
+spread-only mode, so the implementation uses a fixed accepted value above `1`
+instead of probing `1.0` at runtime.
 
 The source-target box determines:
 

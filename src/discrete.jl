@@ -1,5 +1,5 @@
 function _ltkm3dd_spreadonly_upsampfac(nmodes::NTuple{3, Int}, eps::Real)
-    return 1.0001
+    return 1.00001
 end
 
 function _ltkm3dd_make_spreadonly_plan(
@@ -11,52 +11,9 @@ function _ltkm3dd_make_spreadonly_plan(
     dtype::Type{T};
     kwargs...,
 ) where {T <: AbstractFloat}
+    sigma = _ltkm3dd_spreadonly_upsampfac(nmodes, eps)
     modes = TKM3D.FINUFFT.BIGINT[nmodes...]
-    try
-        plan = finufft_makeplan(
-            type,
-            modes,
-            iflag,
-            ntrans,
-            eps;
-            dtype = dtype,
-            spreadinterponly = 1,
-            upsampfac = 1.0,
-            kwargs...,
-        )
-        return plan, 1.0
-    catch err
-        if err isa TKM3D.FINUFFT.FINUFFTError && err.errno == TKM3D.FINUFFT.ERR_UPSAMPFAC_TOO_SMALL
-            sigma = _ltkm3dd_spreadonly_upsampfac(nmodes, eps)
-            plan = finufft_makeplan(
-                type,
-                modes,
-                iflag,
-                ntrans,
-                eps;
-                dtype = dtype,
-                spreadinterponly = 1,
-                upsampfac = sigma,
-                kwargs...,
-            )
-            return plan, sigma
-        end
-        rethrow()
-    end
-end
-
-function _ltkm3dd_make_spreadonly_plan_with_sigma(
-    type::Integer,
-    nmodes::NTuple{3, Int},
-    iflag::Integer,
-    ntrans::Integer,
-    eps::Real,
-    dtype::Type{T},
-    sigma::Real;
-    kwargs...,
-) where {T <: AbstractFloat}
-    modes = TKM3D.FINUFFT.BIGINT[nmodes...]
-    return finufft_makeplan(
+    plan = finufft_makeplan(
         type,
         modes,
         iflag,
@@ -67,11 +24,12 @@ function _ltkm3dd_make_spreadonly_plan_with_sigma(
         upsampfac = sigma,
         kwargs...,
     )
+    return plan, sigma
 end
 
 function _ltkm3dd_spreadonly_next235even(n::Integer)
     n <= 2 && return 2
-    nplus = isodd(n) ? n : n - 2
+    nplus = isodd(n) ? n - 1 : n - 2
     numdiv = 2
     while numdiv > 1
         nplus += 2
@@ -113,12 +71,16 @@ function _ltkm3dd_spreadonly_gaussquad(n::Int)
     for i in 0:(n ÷ 2 - 1)
         x = cos((2 * i + 1) * π / (2 * n))
         convcount = 0
+        iter = 0
+        max_iter = 100
         while true
             p, dp = _ltkm3dd_spreadonly_leg_eval(n, x)
             dx = -p / dp
             x += dx
             convcount = abs(dx) < 1e-14 ? convcount + 1 : 0
             convcount == 3 && break
+            iter += 1
+            iter >= max_iter && error("_ltkm3dd_spreadonly_gaussquad failed to converge for n=$(n), i=$(i)")
         end
         xgl[i + 1] = -x
         xgl[n - i] = x
@@ -476,14 +438,13 @@ function _ltkm3dd_eval_spreadonly(
     plan1 = nothing
     plan2 = nothing
     try
-        plan1 = _ltkm3dd_make_spreadonly_plan_with_sigma(
+        plan1, _ = _ltkm3dd_make_spreadonly_plan(
             1,
             nfdim,
             -1,
             1,
             T(eps),
-            T,
-            sigma;
+            T;
             modeord = 0,
             spread_kerformula = 1,
         )
@@ -504,14 +465,13 @@ function _ltkm3dd_eval_spreadonly(
             end
         end
 
-        plan2 = _ltkm3dd_make_spreadonly_plan_with_sigma(
+        plan2, _ = _ltkm3dd_make_spreadonly_plan(
             2,
             nfdim,
             1,
             1,
             T(eps),
-            T,
-            sigma;
+            T;
             modeord = 0,
             spread_kerformula = 1,
         )

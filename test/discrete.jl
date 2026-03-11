@@ -64,10 +64,10 @@ end
 
 @testset "spread-only upsampfac selection" begin
     sigma = TKM3D._ltkm3dd_spreadonly_upsampfac((17, 19, 21), 1e-12)
-    @test sigma > 1.0
+    @test sigma == 1.00001
 end
 
-@testset "spread-only plan fallback" begin
+@testset "spread-only plan uses runtime configuration" begin
     plan, sigma = TKM3D._ltkm3dd_make_spreadonly_plan(
         1,
         (33, 35, 37),
@@ -75,10 +75,16 @@ end
         1,
         1e-12,
         Float64;
-        modeord = 1,
+        modeord = 0,
     )
-    @test sigma > 1.0
+    @test sigma == TKM3D._ltkm3dd_spreadonly_upsampfac((33, 35, 37), 1e-12)
     TKM3D.FINUFFT.finufft_destroy!(plan)
+end
+
+@testset "next235even returns even 2/3/5-smooth sizes" begin
+    @test TKM3D._ltkm3dd_spreadonly_next235even(33) == 36
+    @test TKM3D._ltkm3dd_spreadonly_next235even(34) == 36
+    @test iseven(TKM3D._ltkm3dd_spreadonly_next235even(35))
 end
 
 @testset "spread-only backend matches exact backend at targets" begin

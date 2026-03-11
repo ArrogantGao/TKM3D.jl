@@ -4,8 +4,8 @@
 
 Replace the current high-level `nufft3d1` / `nufft3d2` backend inside `ltkm3dd`
 with a FINUFFT guru-interface backend that uses `spreadinterponly=1` plus
-explicit FFTs, so the internal upsampling factor can be driven to `1.0` when
-possible and to `1.0001` otherwise.
+explicit FFTs, with a fixed internal spread-only upsampling factor of
+`1.00001`.
 
 ## Scope
 
@@ -13,7 +13,7 @@ possible and to `1.0001` otherwise.
 - preserve current source/target potential and gradient semantics
 - preserve the current source self-potential subtraction
 - validate the new backend against the analytic Gaussian long-range reference
-- add a deterministic fallback from `upsampfac=1.0` to `upsampfac=1.0001`
+- use a fixed accepted spread-only `upsampfac` without probing `1.0` at runtime
 
 Out of scope:
 
@@ -29,7 +29,7 @@ Local probing against the installed FINUFFT 3.5.0 Julia wrapper shows:
 - the guru interface exposes `finufft_makeplan`, `finufft_setpts!`, and `finufft_exec`
 - `spreadinterponly=1` is supported for type 1 and type 2 plans
 - exact `upsampfac=1.0` is rejected with `ERR_UPSAMPFAC_TOO_SMALL`
-- `upsampfac=1.0001` is accepted in spread-only mode
+- `upsampfac=1.00001` is accepted in spread-only mode
 
 That means the backend must not assume that exact `1.0` is usable in the local
 FINUFFT build.
@@ -48,16 +48,18 @@ exact type-1 and type-2 NUFFTs with the following pipeline:
 
 1. type-1 spread-only plan: spread source charges to a uniform grid
 2. explicit forward FFT on that grid
-3. multiply in Fourier space by `truncated_laplace3d_hat(k, L) * windowhat(k)`
-4. explicit inverse FFT back to a uniform grid
-5. type-2 interpolate-only plan: interpolate grid values to targets
+3. deconvolve/shuffle from the fine-grid Fourier array to the centered mode box
+4. multiply in Fourier space by `truncated_laplace3d_hat(k, L) * windowhat(k)`
+5. deconvolve/shuffle back to the fine-grid Fourier array
+6. explicit inverse FFT back to a uniform grid
+7. type-2 interpolate-only plan: interpolate grid values to targets
 
 The key point is that the same FINUFFT spreading kernel is used at both ends.
-The Fourier transform of the spread grid already carries one factor of the
-FINUFFT kernel transform, and the interpolate-only stage expects exactly that
-same factor on the inverse-FFT grid. Because of that pairing, no explicit NUFFT
-deconvolution factor is needed in the first implementation. The only spectral
-physics multiplier remains
+The Fourier transform of the spread grid carries the FINUFFT kernel transform,
+so the centered mode box must be deconvolved by the corresponding separable
+Fourier factors before applying the TKM spectral multiplier. The reverse path
+reapplies the matching factors when embedding back onto the fine grid. The
+spectral physics multiplier remains
 
 ```math
 \widehat{G}_L(k)\widehat{W}(k).
@@ -70,15 +72,13 @@ derivation. It is not replaced by the FINUFFT kernel.
 
 - keep the current anisotropic mode-count logic based on `Δk_x`, `Δk_y`, `Δk_z`
 - use the same `(length(kx), length(ky), length(kz))` grid as the current code
-- create spread-only guru plans with `modeord=1` so the spread grid stays in
-  FFT ordering and does not need extra `fftshift` / `ifftshift` work
-- prefer `upsampfac=1.0`, but on `ERR_UPSAMPFAC_TOO_SMALL` recreate the plan
-  with `upsampfac=1.0001`
+- create spread-only guru plans with `modeord=0`, matching the current Julia
+  `FFTW` ordering used by the deconvolution/shuffle helpers
+- use a fixed accepted `upsampfac=1.00001`
 
-The first implementation should not silently enlarge the grid if FINUFFT says
-the fine grid is too small for the requested spread width. That is a separate
-policy decision. For now, plan creation errors other than the explicit
-`upsampfac` fallback should surface.
+The implementation should not silently enlarge the grid if FINUFFT says the
+fine grid is too small for the requested spread width. That is a separate
+policy decision, so plan creation errors should surface directly.
 
 ## Gradients
 
@@ -120,7 +120,8 @@ This reduces debugging ambiguity when the guru-plan path is first introduced.
 Keep the existing analytic Gaussian long-range potential/gradient tests and add
 backend-specific coverage:
 
-- unit coverage for the `upsampfac=1.0 -> 1.0001` fallback helper
+- unit coverage for the fixed spread-only `upsampfac` helper and fine-grid
+  sizing helper
 - small-system parity tests between the current exact backend and the new
   spread-only backend
 - existing target and source Gaussian long-range potential/gradient accuracy
@@ -135,5 +136,5 @@ background noise unless guru-plan lifecycle changes make it materially worse.
 Update the README after implementation to document:
 
 - that `ltkm3dd` now uses a FINUFFT spread-only backend internally
-- the `upsampfac` fallback policy
+- the fixed internal `upsampfac = 1.00001` policy
 - that public semantics are unchanged
