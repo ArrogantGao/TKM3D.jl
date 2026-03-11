@@ -67,6 +67,20 @@ end
     @test sigma > 1.0
 end
 
+@testset "spread-only plan fallback" begin
+    plan, sigma = TKM3D._ltkm3dd_make_spreadonly_plan(
+        1,
+        (33, 35, 37),
+        -1,
+        1,
+        1e-12,
+        Float64;
+        modeord = 1,
+    )
+    @test sigma > 1.0
+    TKM3D.FINUFFT.finufft_destroy!(plan)
+end
+
 @testset "ltkm3dd validation" begin
     sigma = 0.2
     what(k) = gaussian_window_fourier_transform(k, sigma)

@@ -2,6 +2,49 @@ function _ltkm3dd_spreadonly_upsampfac(nmodes::NTuple{3, Int}, eps::Real)
     return 1.0001
 end
 
+function _ltkm3dd_make_spreadonly_plan(
+    type::Integer,
+    nmodes::NTuple{3, Int},
+    iflag::Integer,
+    ntrans::Integer,
+    eps::Real,
+    dtype::Type{T};
+    kwargs...,
+) where {T <: AbstractFloat}
+    modes = TKM3D.FINUFFT.BIGINT[nmodes...]
+    try
+        plan = finufft_makeplan(
+            type,
+            modes,
+            iflag,
+            ntrans,
+            eps;
+            dtype = dtype,
+            spreadinterponly = 1,
+            upsampfac = 1.0,
+            kwargs...,
+        )
+        return plan, 1.0
+    catch err
+        if err isa TKM3D.FINUFFT.FINUFFTError && err.errno == TKM3D.FINUFFT.ERR_UPSAMPFAC_TOO_SMALL
+            sigma = _ltkm3dd_spreadonly_upsampfac(nmodes, eps)
+            plan = finufft_makeplan(
+                type,
+                modes,
+                iflag,
+                ntrans,
+                eps;
+                dtype = dtype,
+                spreadinterponly = 1,
+                upsampfac = sigma,
+                kwargs...,
+            )
+            return plan, sigma
+        end
+        rethrow()
+    end
+end
+
 """
     _ltkm3dd_eval(sources, charges, targets, windowhat, lw, kmax, eps;
                   need_grad=false, return_selfconst=false)
