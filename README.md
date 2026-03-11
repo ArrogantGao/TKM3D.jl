@@ -12,9 +12,9 @@ Implementation of the truncated kernel method for 3D systems with `FINUFFT`.
 The current code implements only the **discrete long-range Laplace solver** `ltkm3dd`.
 
 It evaluates the windowed long-range interaction
-$$
+```math
 \phi(y) = \int_{\Omega'} \sum_i \frac{W(x - x_i)}{4 \pi |y - x|} q_i \, dx,
-$$
+```
 where `W` is a smooth window, for example the Gaussian window used in Ewald
 summation.
 
