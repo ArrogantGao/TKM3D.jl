@@ -5,7 +5,9 @@
 /docs/build/
 
 Manifest.toml
+benchmark/Manifest.toml
 .vscode
 .DS_Store
 docs/plans
 .worktree
+.worktrees
