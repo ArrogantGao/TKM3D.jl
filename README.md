@@ -9,8 +9,7 @@ Implementation of the truncated kernel method for 3D systems with `FINUFFT`.
 
 ## Current Status
 
-The current code implements only the **discrete long-range Laplace solver**
-`ltkm3dd`.
+The current code implements only the **discrete long-range Laplace solver** `ltkm3dd`.
 
 It evaluates the windowed long-range interaction
 $$
