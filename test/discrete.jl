@@ -62,6 +62,113 @@ function gaussian_kmax_from_tol(sigma::Float64, tail_tol::Float64)
     return 2.0 * sqrt(log(1.0 / tail_tol)) / sigma
 end
 
+@testset "spread-only upsampfac selection" begin
+    sigma = TKM3D._ltkm3dd_spreadonly_upsampfac((17, 19, 21), 1e-12)
+    @test sigma == 1.00001
+end
+
+@testset "spread-only plan uses runtime configuration" begin
+    plan, sigma = TKM3D._ltkm3dd_make_spreadonly_plan(
+        1,
+        (33, 35, 37),
+        -1,
+        1,
+        1e-12,
+        Float64;
+        modeord = 0,
+    )
+    @test sigma == TKM3D._ltkm3dd_spreadonly_upsampfac((33, 35, 37), 1e-12)
+    TKM3D.FINUFFT.finufft_destroy!(plan)
+end
+
+@testset "next235even returns even 2/3/5-smooth sizes" begin
+    @test TKM3D._ltkm3dd_spreadonly_next235even(33) == 36
+    @test TKM3D._ltkm3dd_spreadonly_next235even(34) == 36
+    @test iseven(TKM3D._ltkm3dd_spreadonly_next235even(35))
+end
+
+@testset "spread-only backend matches exact backend at targets" begin
+    rng = MersenneTwister(1234)
+    sources = rand(rng, 3, 7)
+    targets = rand(rng, 3, 5)
+    charges = randn(rng, 7)
+    sigma = 0.18
+    windowhat(k) = exp(-sigma^2 * k^2 / 4)
+
+    ref_pot, ref_grad, _ = TKM3D._ltkm3dd_eval_exact(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = false,
+    )
+    pot, grad, _ = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = false,
+    )
+
+    @test grad === nothing
+    @test ref_grad === nothing
+    @test isapprox(pot, ref_pot; rtol = 5e-7, atol = 1e-9)
+end
+
+@testset "public ltkm3dd matches spread-only backend at sources and targets" begin
+    rng = MersenneTwister(4321)
+    sources = rand(rng, 3, 6)
+    targets = rand(rng, 3, 4)
+    charges = randn(rng, 6)
+    sigma = 0.21
+    windowhat(k) = exp(-sigma^2 * k^2 / 4)
+
+    src_pot, src_grad, selfconst = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        sources,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = true,
+        return_selfconst = true,
+    )
+    trg_pot, trg_grad, _ = TKM3D._ltkm3dd_eval_spreadonly(
+        sources,
+        charges,
+        targets,
+        windowhat,
+        4sigma,
+        40.0,
+        1e-6;
+        need_grad = true,
+    )
+
+    out = ltkm3dd(
+        1e-6,
+        sources;
+        charges,
+        targets,
+        pg = 2,
+        pgt = 2,
+        windowhat = windowhat,
+        lw = 4sigma,
+        kmax = 40.0,
+    )
+
+    @test isapprox(out.pot, src_pot .- charges .* selfconst; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.grad, src_grad; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.pottarg, trg_pot; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out.gradtarg, trg_grad; rtol = 1e-12, atol = 1e-12)
+end
+
 @testset "ltkm3dd validation" begin
     sigma = 0.2
     what(k) = gaussian_window_fourier_transform(k, sigma)
@@ -96,8 +203,8 @@ end
     @test isnothing(out.grad)
     @test length(out.pottarg) == size(targets, 2)
     @test size(out.gradtarg) == size(targets)
-    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 1e-12
-    @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 1e-11
+    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 2e-10
+    @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
 @testset "ltkm3dd matches analytic Gaussian pot/grad at sources without self term" begin
@@ -119,8 +226,8 @@ end
     @test size(out.grad) == size(sources)
     @test isnothing(out.pottarg)
     @test isnothing(out.gradtarg)
-    @test norm(out.pot .- ref_pot) / norm(ref_pot) < 5e-12
-    @test norm(out.grad .- ref_grad) / norm(ref_grad) < 1e-11
+    @test norm(out.pot .- ref_pot) / norm(ref_pot) < 1e-10
+    @test norm(out.grad .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
 @testset "ltkm3dd combined source and target pot/grad outputs" begin

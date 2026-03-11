@@ -31,7 +31,7 @@ with FMM3D-like source and target output flags.
 
 ### Arguments
 
-- `eps`: requested NUFFT tolerance
+- `eps`: requested spread/interpolation tolerance
 - `sources`: source coordinates in `3 x ns` layout
 - `charges`: source strengths, length `ns`
 - `targets`: optional target coordinates in `3 x nt` layout
@@ -93,8 +93,24 @@ grad_targ = out.gradtarg
 ## Numerical Method
 
 The discrete solver uses an anisotropic Fourier-space trapezoidal rule with the
-truncated Laplace kernel and evaluates the source and target transforms with
-type-1 and type-2 `FINUFFT` calls.
+truncated Laplace kernel, but the current backend no longer calls the full
+type-1 and type-2 NUFFTs directly.
+
+Instead it uses the `FINUFFT` guru interface in spread/interpolate-only mode:
+
+- spread sources to a regular fine grid
+- apply an explicit FFT on that fine grid
+- deconvolve/shuffle from the fine grid to the requested centered mode box
+- apply the truncated-kernel and window multipliers in Fourier space
+- deconvolve/shuffle back to the fine grid
+- apply an explicit inverse FFT
+- interpolate from the fine grid to sources or targets
+
+The fine-grid sizes are chosen with the same `next235even(max(ceil(σ m), 2nspread))`
+logic used by `FINUFFT`, with the internal spread-only upsampling factor set to
+`1.00001`. The current local `FINUFFT` build rejects exact `upsampfac = 1.0` in
+spread-only mode, so the implementation uses a fixed accepted value above `1`
+instead of probing `1.0` at runtime.
 
 The source-target box determines:
 
@@ -103,7 +119,8 @@ The source-target box determines:
 - the centered Fourier mode grid up to `kmax`
 
 Gradients are computed in Fourier space by multiplying the scaled coefficients by
-`im * k_x`, `im * k_y`, and `im * k_z` before the type-2 NUFFT.
+`im * k_x`, `im * k_y`, and `im * k_z` before the inverse fine-grid FFT and
+interpolation step.
 
 ## Current Assumptions and Limitations
 
@@ -115,6 +132,7 @@ Gradients are computed in Fourier space by multiplying the scaled coefficients b
 - source potentials omit the diagonal self interaction
 - source self gradients are not corrected separately; for the symmetric Gaussian
   long-range kernel used in tests, the self gradient is zero
+- the current spread-only backend uses an ES spreader kernel internally
 - only the discrete Laplace long-range path is implemented
 
 ## Validation
@@ -126,3 +144,7 @@ long-range potential and gradient for:
 - source potential with the diagonal term removed
 - source gradient
 - combined source and target outputs
+
+With the current spread-only backend, the Gaussian long-range tests pass at
+roughly `1e-10` relative error for potential and `5e-11` relative error for
+gradients on the tested random systems.

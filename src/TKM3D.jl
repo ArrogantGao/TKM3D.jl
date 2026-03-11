@@ -1,5 +1,6 @@
 module TKM3D
 
+using FFTW
 using FINUFFT
 using LinearAlgebra
 using SpecialFunctions
