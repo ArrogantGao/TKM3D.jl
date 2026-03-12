@@ -68,6 +68,16 @@ function make_random_targets_3xn(n::Int, halfwidth::Float64; seed::Int)
     return (2.0 * halfwidth) .* rand(rng, 3, n) .- halfwidth
 end
 
+function make_uniform_cartesian_sources(n::Int, h::Float64)
+    sources = Matrix{Float64}(undef, 3, n^3)
+    idx = 1
+    for x in 0:(n - 1), y in 0:(n - 1), z in 0:(n - 1)
+        sources[:, idx] .= (x * h, y * h, z * h)
+        idx += 1
+    end
+    return sources
+end
+
 @testset "type-2 FINUFFT plan helper matches simple interface" begin
     rng = MersenneTwister(20260312)
     ms, mt, mu = 7, 5, 6
@@ -83,6 +93,34 @@ end
 
     @test isapprox(out_single, ref_single; rtol = 1e-12, atol = 1e-12)
     @test isapprox(out_many, ref_many; rtol = 1e-12, atol = 1e-12)
+end
+
+@testset "spectral cutoff helper returns smallest admissible radius" begin
+    radii = [0.0, 1.0, 1.0, 2.0, 3.0, 3.0]
+    magnitudes = [10.0, 5.0, 4.0, 0.8, 0.09, 0.08]
+
+    cutoff = TKM3D._smallest_kcut_from_tail(radii, magnitudes, 0.1)
+    tail_ratio = TKM3D._pointwise_tail_ratio(radii, magnitudes, cutoff)
+
+    @test cutoff == 2.0
+    @test tail_ratio < 0.1
+end
+
+@testset "estimate_kcut3dc collapses constant Cartesian grid to zero mode" begin
+    n = 6
+    h = 0.25
+    sources = make_uniform_cartesian_sources(n, h)
+    charges = ones(Float64, size(sources, 2))
+
+    out = estimate_kcut3dc(sources; charges, tol = 1e-10, eps = 1e-12)
+
+    @test out isa TKM3D.KCut3DCResult
+    @test out.kcut ≈ 0.0 atol = 1e-12
+    @test out.tail_ratio < 1e-10
+    @test out.kmax_nyquist > 0
+    @test out.axis_nyquist == (π / h, π / h, π / h)
+    @test out.nmodes == (n + 1, n + 1, n + 1)
+    @test out.Δk == (2π / (n * h), 2π / (n * h), 2π / (n * h))
 end
 
 @testset "ltkm3dc validation" begin

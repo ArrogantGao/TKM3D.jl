@@ -13,6 +13,7 @@ The current code implements:
 
 - the **discrete long-range Laplace solver** `ltkm3dd`
 - the **continuous free-space Laplace solver** `ltkm3dc`
+- the **continuous spectral cutoff estimator** `estimate_kcut3dc`
 
 The discrete solver evaluates the windowed long-range interaction
 ```math
@@ -38,6 +39,10 @@ and
 
 `ltkm3dc(eps, sources; charges, targets=nothing, pg=0, pgt=0, kmax=nothing)`
 
+and
+
+`estimate_kcut3dc(sources; charges, tol, eps=1e-12)`
+
 with FMM3D-like source and target output flags.
 
 ### Arguments
@@ -59,6 +64,11 @@ Continuous-only argument:
 
 - `kmax`: Fourier truncation radius, or `nothing` to estimate it from average source spacing
 
+Continuous spectral cutoff arguments:
+
+- `tol`: relative pointwise tail tolerance
+- `eps`: requested NUFFT tolerance
+
 ### Output Flags
 
 - `pg = 0`: no source output
@@ -77,6 +87,16 @@ Both solvers return a `TKMVals` object with fields:
 - `pottarg`: target potential, length `nt`, or `nothing`
 - `gradtarg`: target gradient, size `3 x nt`, or `nothing`
 - `ier`: currently `0` on success
+
+`estimate_kcut3dc` returns a `KCut3DCResult` with fields:
+
+- `kcut`: smallest cutoff satisfying the requested tail tolerance
+- `kmax_nyquist`: largest inferred axis-wise Nyquist limit
+- `axis_nyquist`: per-axis Nyquist limits
+- `max_coeff`: largest coefficient magnitude on the sampled mode box
+- `tail_ratio`: achieved relative pointwise tail ratio at `kcut`
+- `nmodes`: sampled mode-box dimensions
+- `Δk`: per-axis mode spacings
 
 ## Example
 
@@ -133,6 +153,28 @@ out = ltkm3dc(
 )
 ```
 
+Cutoff estimation example:
+
+```julia
+using TKM3D
+
+n = 6
+h = 0.25
+sources = Matrix{Float64}(undef, 3, n^3)
+idx = 1
+for x in 0:(n - 1), y in 0:(n - 1), z in 0:(n - 1)
+    sources[:, idx] .= (x * h, y * h, z * h)
+    idx += 1
+end
+charges = ones(size(sources, 2))
+
+cut = estimate_kcut3dc(sources; charges, tol = 1e-10)
+
+cut.kcut
+cut.axis_nyquist
+cut.nmodes
+```
+
 ## Numerical Method
 
 The discrete and continuous solvers both use an anisotropic Fourier-space
@@ -174,6 +216,7 @@ The source-target box determines:
   long-range kernel used in tests, the self gradient is zero
 - `ltkm3dc` expects `charges` to be preweighted quadrature masses
 - `ltkm3dc(...; kmax=nothing)` estimates Nyquist from average positive source-coordinate gaps, so explicit `kmax` is more reliable for strongly irregular point clouds
+- `estimate_kcut3dc` uses the same average positive source-coordinate gap heuristic to infer Nyquist
 
 ## Validation
 

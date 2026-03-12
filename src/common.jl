@@ -6,6 +6,16 @@ struct TKMVals{P, G, PT, GT}
     ier::Int
 end
 
+struct KCut3DCResult{T}
+    kcut::T
+    kmax_nyquist::T
+    axis_nyquist::NTuple{3, T}
+    max_coeff::T
+    tail_ratio::T
+    nmodes::NTuple{3, Int}
+    Δk::NTuple{3, T}
+end
+
 function as_3xn(points::AbstractMatrix{<:Real})
     size(points, 1) == 3 || throw(ArgumentError("points must have shape (3, N)"))
     return Matrix{float(eltype(points))}(points)
@@ -44,6 +54,86 @@ function centered_mode_axis(Δk::T, k_max::T) where {T <: Real}
         axis[i] = Δk * (i - 1 - shift)
     end
     return axis
+end
+
+function _pointwise_tail_ratio(
+    radii::AbstractVector{<:Real},
+    magnitudes::AbstractVector{<:Real},
+    cutoff::Real,
+)
+    length(radii) == length(magnitudes) || throw(ArgumentError("radii and magnitudes must have the same length"))
+    isempty(radii) && throw(ArgumentError("spectrum cannot be empty"))
+
+    max_mag = maximum(magnitudes)
+    max_mag > 0 || return 0.0
+
+    tail_max = 0.0
+    @inbounds for i in eachindex(radii)
+        if radii[i] > cutoff && magnitudes[i] > tail_max
+            tail_max = Float64(magnitudes[i])
+        end
+    end
+    return tail_max / max_mag
+end
+
+function _smallest_kcut_from_tail(
+    radii::AbstractVector{<:Real},
+    magnitudes::AbstractVector{<:Real},
+    tol::Real,
+)
+    length(radii) == length(magnitudes) || throw(ArgumentError("radii and magnitudes must have the same length"))
+    isempty(radii) && throw(ArgumentError("spectrum cannot be empty"))
+    0.0 < tol < 1.0 || throw(ArgumentError("tol must satisfy 0 < tol < 1"))
+
+    max_mag = maximum(magnitudes)
+    max_mag > 0 || return 0.0
+
+    order = sortperm(radii)
+    sorted_radii = Float64.(radii[order])
+    sorted_magnitudes = Float64.(magnitudes[order])
+    suffix_exclusive = Vector{Float64}(undef, length(sorted_magnitudes))
+    suffix_exclusive[end] = 0.0
+
+    @inbounds for i in (length(sorted_magnitudes) - 1):-1:1
+        suffix_exclusive[i] = max(suffix_exclusive[i + 1], sorted_magnitudes[i + 1])
+    end
+
+    i = 1
+    while i <= length(sorted_radii)
+        j = i
+        while j < length(sorted_radii) && sorted_radii[j + 1] == sorted_radii[i]
+            j += 1
+        end
+        if suffix_exclusive[i] / max_mag < tol
+            return sorted_radii[i]
+        end
+        i = j + 1
+    end
+
+    return sorted_radii[end]
+end
+
+function _spectral_radii_and_magnitudes(
+    coeff::AbstractArray{<:Complex, 3},
+    kx::AbstractVector{<:Real},
+    ky::AbstractVector{<:Real},
+    kz::AbstractVector{<:Real},
+)
+    size(coeff) == (length(kx), length(ky), length(kz)) ||
+        throw(ArgumentError("coefficient array shape must match mode axes"))
+
+    npts = length(coeff)
+    radii = Vector{Float64}(undef, npts)
+    magnitudes = Vector{Float64}(undef, npts)
+
+    idx = 1
+    @inbounds for iz in eachindex(kz), iy in eachindex(ky), ix in eachindex(kx)
+        radii[idx] = sqrt(kx[ix]^2 + ky[iy]^2 + kz[iz]^2)
+        magnitudes[idx] = abs(coeff[ix, iy, iz])
+        idx += 1
+    end
+
+    return radii, magnitudes
 end
 
 function _finufft_make_type2_plan_3d(

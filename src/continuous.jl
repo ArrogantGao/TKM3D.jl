@@ -23,6 +23,91 @@ function _ltkm3dc_estimate_kmax(sources::AbstractMatrix{<:Real})
     return min(pi / dx, pi / dy, pi / dz)
 end
 
+function _ltkm3dc_source_nyquist_geometry(sources::AbstractMatrix{<:Real})
+    src = as_3xn(sources)
+    mins = vec(minimum(src; dims = 2))
+    maxs = vec(maximum(src; dims = 2))
+    hx = _ltkm3dc_mean_positive_gap(vec(view(src, 1, :)))
+    hy = _ltkm3dc_mean_positive_gap(vec(view(src, 2, :)))
+    hz = _ltkm3dc_mean_positive_gap(vec(view(src, 3, :)))
+
+    spacings = (Float64(hx), Float64(hy), Float64(hz))
+    lengths = (
+        Float64(maxs[1] - mins[1] + hx),
+        Float64(maxs[2] - mins[2] + hy),
+        Float64(maxs[3] - mins[3] + hz),
+    )
+    Δk = (
+        Float64(2π / lengths[1]),
+        Float64(2π / lengths[2]),
+        Float64(2π / lengths[3]),
+    )
+    axis_nyquist = (
+        Float64(pi / hx),
+        Float64(pi / hy),
+        Float64(pi / hz),
+    )
+    return mins, spacings, lengths, Δk, axis_nyquist
+end
+
+"""
+    estimate_kcut3dc(sources; charges, tol, eps=1e-12)
+
+Estimate the smallest radial spectral cutoff `kcut` such that the relative
+pointwise tail of the type-1 NUFFT spectrum satisfies
+
+`max_{|q| > kcut} |F(q)| / max_q |F(q)| < tol`
+
+using a Nyquist-limited anisotropic mode box inferred from the average positive
+source-coordinate gaps on each axis.
+"""
+function estimate_kcut3dc(
+    sources::AbstractMatrix{<:Real};
+    charges,
+    tol::Real,
+    eps::Real = 1e-12,
+)
+    0.0 < tol < 1.0 || throw(ArgumentError("tol must satisfy 0 < tol < 1"))
+    eps > 0 || throw(ArgumentError("eps must be positive"))
+
+    src = as_3xn(sources)
+    q = Vector{float(eltype(charges))}(charges)
+    length(q) == size(src, 2) || throw(ArgumentError("number of charges must match number of sources"))
+
+    mins, _, lengths, Δk, axis_nyquist = _ltkm3dc_source_nyquist_geometry(src)
+    T = promote_type(Float64, eltype(src), eltype(q), typeof(eps))
+
+    kx = centered_mode_axis(T(Δk[1]), T(axis_nyquist[1]))
+    ky = centered_mode_axis(T(Δk[2]), T(axis_nyquist[2]))
+    kz = centered_mode_axis(T(Δk[3]), T(axis_nyquist[3]))
+    nmodes = (length(kx), length(ky), length(kz))
+
+    srcx = T(Δk[1]) .* (vec(view(src, 1, :)) .- T(mins[1]))
+    srcy = T(Δk[2]) .* (vec(view(src, 2, :)) .- T(mins[2]))
+    srcz = T(Δk[3]) .* (vec(view(src, 3, :)) .- T(mins[3]))
+
+    coeff = nufft3d1(srcx, srcy, srcz, complex.(T.(q)), -1, T(eps), nmodes...)
+    if ndims(coeff) == 4 && size(coeff, 4) == 1
+        coeff = dropdims(coeff; dims = 4)
+    end
+
+    radii, magnitudes = _spectral_radii_and_magnitudes(coeff, kx, ky, kz)
+    kcut = T(_smallest_kcut_from_tail(radii, magnitudes, tol))
+    tail_ratio = T(_pointwise_tail_ratio(radii, magnitudes, kcut))
+    max_coeff = T(maximum(magnitudes))
+    kmax_nyquist = T(maximum(axis_nyquist))
+
+    return KCut3DCResult(
+        kcut,
+        kmax_nyquist,
+        (T(axis_nyquist[1]), T(axis_nyquist[2]), T(axis_nyquist[3])),
+        max_coeff,
+        tail_ratio,
+        nmodes,
+        (T(Δk[1]), T(Δk[2]), T(Δk[3])),
+    )
+end
+
 function _ltkm3dc_eval(
     sources::AbstractMatrix{<:Real},
     charges::AbstractVector{<:Real},
