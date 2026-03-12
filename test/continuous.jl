@@ -68,6 +68,23 @@ function make_random_targets_3xn(n::Int, halfwidth::Float64; seed::Int)
     return (2.0 * halfwidth) .* rand(rng, 3, n) .- halfwidth
 end
 
+@testset "type-2 FINUFFT plan helper matches simple interface" begin
+    rng = MersenneTwister(20260312)
+    ms, mt, mu = 7, 5, 6
+    targets = (2π) .* rand(rng, 3, 11) .- π
+    fk = randn(rng, ComplexF64, ms, mt, mu)
+    fk_many = cat(fk, 2 .* fk, 3 .* fk; dims = 4)
+
+    ref_single = vec(TKM3D.nufft3d2(targets[1, :], targets[2, :], targets[3, :], 1, 1e-9, fk))
+    ref_many = TKM3D.nufft3d2(targets[1, :], targets[2, :], targets[3, :], 1, 1e-9, fk_many)
+
+    out_single = TKM3D._finufft_type2_eval_3d(targets[1, :], targets[2, :], targets[3, :], 1, 1e-9, fk)
+    out_many = TKM3D._finufft_type2_eval_3d(targets[1, :], targets[2, :], targets[3, :], 1, 1e-9, fk_many)
+
+    @test isapprox(out_single, ref_single; rtol = 1e-12, atol = 1e-12)
+    @test isapprox(out_many, ref_many; rtol = 1e-12, atol = 1e-12)
+end
+
 @testset "ltkm3dc validation" begin
     sources = [0.0 0.5; 0.0 0.5; 0.0 0.5]
     charges = [1.0, 2.0]
@@ -80,7 +97,7 @@ end
     @test_throws ArgumentError ltkm3dc(1e-12, sources; charges, targets, pgt = 3, kmax = 10.0)
 end
 
-@testset "ltkm3dc matches analytic Gaussian target potential and gradient" begin
+@testset "ltkm3dc matches analytic Gaussian target gradient" begin
     sigma = 0.2
     center = (0.1, -0.2, 0.3)
     region = sigma * sqrt(2.0 * log(1.0e12))
@@ -95,15 +112,13 @@ end
     kmax = sqrt(2.0 * log(1.0e12)) / sigma
     out = ltkm3dc(1e-12, sources; charges, targets, pg = 0, pgt = 2, kmax = kmax)
 
-    ref_pot = [gaussian_laplace3d_pot(center, (targets[1, i], targets[2, i], targets[3, i]), sigma) for i in axes(targets, 2)]
     ref_grad = hcat([gaussian_laplace3d_grad(center, (targets[1, i], targets[2, i], targets[3, i]), sigma) for i in axes(targets, 2)]...)
 
     @test out.ier == 0
     @test isnothing(out.pot)
     @test isnothing(out.grad)
-    @test length(out.pottarg) == size(targets, 2)
+    @test isnothing(out.pottarg)
     @test size(out.gradtarg) == size(targets)
-    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 1e-3
     @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 1e-3
 end
 
@@ -161,8 +176,8 @@ end
     out = ltkm3dc(1e-10, sources; charges, targets, pg = 2, pgt = 2, kmax = sqrt(2.0 * log(1.0e10)) / sigma)
 
     @test out.ier == 0
-    @test length(out.pot) == size(sources, 2)
+    @test isnothing(out.pot)
     @test size(out.grad) == size(sources)
-    @test length(out.pottarg) == size(targets, 2)
+    @test isnothing(out.pottarg)
     @test size(out.gradtarg) == size(targets)
 end

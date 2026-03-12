@@ -14,7 +14,8 @@ function _ltkm3dd_eval(
     kmax::Real,
     eps::Real,
     ;
-    need_grad::Bool = false,
+    compute_pot::Bool = true,
+    compute_grad::Bool = false,
     return_selfconst::Bool = false,
 )
     lw >= 0 || throw(ArgumentError("lw must be nonnegative"))
@@ -51,6 +52,9 @@ function _ltkm3dd_eval(
     trgz = Δk_z .* (vec(view(trg, 3, :)) .- cz)
 
     coeff = nufft3d1(srcx, srcy, srcz, complex.(q), -1, T(eps), length(kx), length(ky), length(kz))
+    if ndims(coeff) == 4 && size(coeff, 4) == 1
+        coeff = dropdims(coeff; dims = 4)
+    end
 
     diag_sum = zero(T)
     @inbounds for iz in eachindex(kz), iy in eachindex(ky), ix in eachindex(kx)
@@ -64,21 +68,28 @@ function _ltkm3dd_eval(
         end
     end
 
-    pot_complex = nufft3d2(trgx, trgy, trgz, 1, T(eps), coeff)
     prefactor = (Δk_x * Δk_y * Δk_z) / (T(2π)^3)
-    pot = prefactor .* real.(pot_complex)
+    pot = nothing
     grad = nothing
 
-    if need_grad
-        grad = Matrix{T}(undef, 3, size(trg, 2))
-        grad_coeff = similar(coeff)
-        for d in 1:3
-            @inbounds for iz in eachindex(kz), iy in eachindex(ky), ix in eachindex(kx)
-                kd = d == 1 ? kx[ix] : d == 2 ? ky[iy] : kz[iz]
-                grad_coeff[ix, iy, iz] = (im * kd) * coeff[ix, iy, iz]
+    if compute_pot || compute_grad
+        plan = _finufft_make_type2_plan_3d(trgx, trgy, trgz, 1, T(eps), (length(kx), length(ky), length(kz)), 1, T)
+        try
+            if compute_pot
+                pot_complex = _finufft_type2_exec_3d(plan, coeff)
+                pot = prefactor .* real.(pot_complex)
             end
-            grad_complex = nufft3d2(trgx, trgy, trgz, 1, T(eps), grad_coeff)
-            grad[d, :] .= prefactor .* real.(grad_complex)
+
+            if compute_grad
+                grad_coeff = _spectral_gradient_coeffs_3d(coeff, kx, ky, kz)
+                FINUFFT.finufft_destroy!(plan)
+                plan = nothing
+                plan = _finufft_make_type2_plan_3d(trgx, trgy, trgz, 1, T(eps), (length(kx), length(ky), length(kz)), 3, T)
+                grad_complex = _finufft_type2_exec_3d(plan, grad_coeff)
+                grad = prefactor .* permutedims(real.(grad_complex))
+            end
+        finally
+            !isnothing(plan) && FINUFFT.finufft_destroy!(plan)
         end
     end
 
@@ -94,9 +105,15 @@ function _ltkm3dd_eval_exact(
     lw::Real,
     kmax::Real,
     eps::Real;
-    need_grad::Bool = false,
+    compute_pot::Bool = true,
+    compute_grad::Bool = false,
+    need_grad::Union{Nothing, Bool} = nothing,
     return_selfconst::Bool = false,
 )
+    if !isnothing(need_grad)
+        compute_pot = true
+        compute_grad = need_grad
+    end
     return _ltkm3dd_eval(
         sources,
         charges,
@@ -105,7 +122,8 @@ function _ltkm3dd_eval_exact(
         lw,
         kmax,
         eps;
-        need_grad = need_grad,
+        compute_pot = compute_pot,
+        compute_grad = compute_grad,
         return_selfconst = return_selfconst,
     )
 end
@@ -140,14 +158,37 @@ function ltkm3dd(
     gradtarg = nothing
 
     if pg > 0
-        pot, grad, selfconst = _ltkm3dd_eval_exact(src, q, src, windowhat, lw, kmax, eps; need_grad = (pg == 2), return_selfconst = true)
-        pot .-= q .* selfconst
+        pot, grad, selfconst = _ltkm3dd_eval_exact(
+            src,
+            q,
+            src,
+            windowhat,
+            lw,
+            kmax,
+            eps;
+            compute_pot = (pg == 1),
+            compute_grad = (pg == 2),
+            return_selfconst = (pg == 1),
+        )
+        if pg == 1
+            pot .-= q .* selfconst
+        end
     end
 
     if pgt > 0
         isnothing(targets) && throw(ArgumentError("targets are required when pgt > 0"))
         trg = as_3xn(targets)
-        pottarg, gradtarg, _ = _ltkm3dd_eval_exact(src, q, trg, windowhat, lw, kmax, eps; need_grad = (pgt == 2))
+        pottarg, gradtarg, _ = _ltkm3dd_eval_exact(
+            src,
+            q,
+            trg,
+            windowhat,
+            lw,
+            kmax,
+            eps;
+            compute_pot = (pgt == 1),
+            compute_grad = (pgt == 2),
+        )
     elseif !isnothing(targets)
         as_3xn(targets)
     end

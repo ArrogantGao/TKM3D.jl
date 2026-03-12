@@ -63,10 +63,10 @@ Continuous-only argument:
 
 - `pg = 0`: no source output
 - `pg = 1`: source potentials only
-- `pg = 2`: source potentials and gradients
+- `pg = 2`: source gradients only
 - `pgt = 0`: no target output
 - `pgt = 1`: target potentials only
-- `pgt = 2`: target potentials and gradients
+- `pgt = 2`: target gradients only
 
 ### Return Value
 
@@ -95,7 +95,7 @@ out = ltkm3dd(
     sources;
     charges,
     targets,
-    pg = 2,
+    pg = 1,
     pgt = 2,
     windowhat = windowhat,
     lw = 5sigma,
@@ -107,6 +107,12 @@ grad_src = out.grad
 pot_targ = out.pottarg
 grad_targ = out.gradtarg
 ```
+
+In the example above:
+
+- `pot_src` is populated because `pg = 1`
+- `grad_targ` is populated because `pgt = 2`
+- `grad_src` and `pot_targ` are `nothing`
 
 Continuous example:
 
@@ -129,25 +135,25 @@ out = ltkm3dc(
 
 ## Numerical Method
 
-The discrete solver uses an anisotropic Fourier-space trapezoidal rule with the
-truncated Laplace kernel, but the current backend no longer calls the full
-type-1 and type-2 NUFFTs directly.
+The discrete and continuous solvers both use an anisotropic Fourier-space
+trapezoidal rule on a centered mode box up to `kmax`.
 
-Instead it uses the `FINUFFT` guru interface in spread/interpolate-only mode:
+For a given source-target box, the implementation:
 
-- spread sources to a regular fine grid
-- apply an explicit FFT on that fine grid
-- deconvolve/shuffle from the fine grid to the requested centered mode box
-- apply the truncated-kernel and window multipliers in Fourier space
-- deconvolve/shuffle back to the fine grid
-- apply an explicit inverse FFT
-- interpolate from the fine grid to sources or targets
+- computes anisotropic mode spacings `Δk_x`, `Δk_y`, `Δk_z`
+- builds the centered Fourier mode grid up to `kmax`
+- applies one type-1 NUFFT to accumulate source data on that grid
+- multiplies the Fourier coefficients by the truncated Laplace kernel, and by
+  `windowhat(k)` for `ltkm3dd`
+- evaluates requested outputs with `FINUFFT` type-2 interpolation
 
-The fine-grid sizes are chosen with the same `next235even(max(ceil(σ m), 2nspread))`
-logic used by `FINUFFT`, with the internal spread-only upsampling factor set to
-`1.00001`. The current local `FINUFFT` build rejects exact `upsampfac = 1.0` in
-spread-only mode, so the implementation uses a fixed accepted value above `1`
-instead of probing `1.0` at runtime.
+Gradient outputs are formed spectrally by multiplying the scaled coefficients by
+`im * k_x`, `im * k_y`, and `im * k_z`. The current implementation batches
+those three derivative fields into one many-vector type-2 plan, so the target
+points are set once and the three gradient interpolations run together.
+
+When `pg = 2` or `pgt = 2`, the solvers skip the potential interpolation
+entirely and return only the gradient field.
 
 The source-target box determines:
 
@@ -155,21 +161,17 @@ The source-target box determines:
 - anisotropic spacings `Δk_x`, `Δk_y`, `Δk_z`
 - the centered Fourier mode grid up to `kmax`
 
-Gradients are computed in Fourier space by multiplying the scaled coefficients by
-`im * k_x`, `im * k_y`, and `im * k_z` before the inverse fine-grid FFT and
-interpolation step.
-
 ## Current Assumptions and Limitations
 
 - `sources` and `targets` use FMM3D-style `3 x N` and `3 x M` layouts
 - only charge sources are supported; dipole inputs are not implemented
 - `pg` and `pgt` support `0`, `1`, and `2`
+- `pg = 2` and `pgt = 2` are gradient-only modes
 - gradients are returned as `3 x N` and `3 x M` matrices
 - `ltkm3dd` expects `windowhat(k)` to be the radial Fourier transform of the window
 - `ltkm3dd` source potentials omit the diagonal self interaction
 - source self gradients are not corrected separately; for the symmetric Gaussian
   long-range kernel used in tests, the self gradient is zero
-- the current spread-only backend uses an ES spreader kernel internally
 - `ltkm3dc` expects `charges` to be preweighted quadrature masses
 - `ltkm3dc(...; kmax=nothing)` estimates Nyquist from average positive source-coordinate gaps, so explicit `kmax` is more reliable for strongly irregular point clouds
 
@@ -183,7 +185,7 @@ long-range potential and gradient for:
 - source gradient
 - combined source and target outputs
 
-With the current spread-only backend, the Gaussian long-range tests pass at
+With the current NUFFT-based backend, the Gaussian long-range tests pass at
 roughly `1e-10` relative error for potential and `5e-11` relative error for
 gradients on the tested random systems.
 

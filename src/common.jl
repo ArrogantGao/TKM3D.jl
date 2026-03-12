@@ -46,6 +46,67 @@ function centered_mode_axis(Δk::T, k_max::T) where {T <: Real}
     return axis
 end
 
+function _finufft_make_type2_plan_3d(
+    xj::AbstractVector{T},
+    yj::AbstractVector{T},
+    zj::AbstractVector{T},
+    iflag::Integer,
+    eps::Real,
+    nmodes::NTuple{3, Int},
+    ntrans::Integer,
+    dtype::Type{T};
+    kwargs...,
+) where {T <: AbstractFloat}
+    modes = FINUFFT.BIGINT[nmodes...]
+    plan = FINUFFT.finufft_makeplan(2, modes, iflag, ntrans, eps; dtype = dtype, kwargs...)
+    FINUFFT.finufft_setpts!(plan, collect(T, xj), collect(T, yj), collect(T, zj))
+    return plan
+end
+
+function _finufft_type2_exec_3d(plan, fk::Array{Complex{T}, 3}) where {T <: AbstractFloat}
+    return vec(FINUFFT.finufft_exec(plan, fk))
+end
+
+function _finufft_type2_exec_3d(plan, fk::Array{Complex{T}, 4}) where {T <: AbstractFloat}
+    return FINUFFT.finufft_exec(plan, fk)
+end
+
+function _finufft_type2_eval_3d(
+    xj::AbstractVector{T},
+    yj::AbstractVector{T},
+    zj::AbstractVector{T},
+    iflag::Integer,
+    eps::Real,
+    fk::Array{Complex{T}, N};
+    kwargs...,
+) where {T <: AbstractFloat, N}
+    N in (3, 4) || throw(ArgumentError("fk must be a 3D or 4D complex array"))
+    nmodes = size(fk)[1:3]
+    ntrans = N == 3 ? 1 : size(fk, 4)
+    plan = _finufft_make_type2_plan_3d(xj, yj, zj, iflag, eps, nmodes, ntrans, T; kwargs...)
+    try
+        return _finufft_type2_exec_3d(plan, fk)
+    finally
+        FINUFFT.finufft_destroy!(plan)
+    end
+end
+
+function _spectral_gradient_coeffs_3d(
+    coeff::Array{Complex{T}, 3},
+    kx::AbstractVector{T},
+    ky::AbstractVector{T},
+    kz::AbstractVector{T},
+) where {T <: AbstractFloat}
+    grad_coeff = Array{Complex{T}, 4}(undef, size(coeff)..., 3)
+    @inbounds for iz in eachindex(kz), iy in eachindex(ky), ix in eachindex(kx)
+        c = coeff[ix, iy, iz]
+        grad_coeff[ix, iy, iz, 1] = (im * kx[ix]) * c
+        grad_coeff[ix, iy, iz, 2] = (im * ky[iy]) * c
+        grad_coeff[ix, iy, iz, 3] = (im * kz[iz]) * c
+    end
+    return grad_coeff
+end
+
 @inline function truncated_laplace3d_hat(k::T, L::T) where {T <: Real}
     if iszero(k)
         return L^2 / 2

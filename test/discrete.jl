@@ -163,9 +163,9 @@ end
         kmax = 40.0,
     )
 
-    @test isapprox(out.pot, src_pot .- charges .* selfconst; rtol = 1e-12, atol = 1e-12)
+    @test isnothing(out.pot)
     @test isapprox(out.grad, src_grad; rtol = 1e-12, atol = 1e-12)
-    @test isapprox(out.pottarg, trg_pot; rtol = 1e-12, atol = 1e-12)
+    @test isnothing(out.pottarg)
     @test isapprox(out.gradtarg, trg_grad; rtol = 1e-12, atol = 1e-12)
 end
 
@@ -183,7 +183,7 @@ end
     @test_throws MethodError ltkm3dd(1e-12, sources; charges, targets, pg = 0, pgt = 1, nd = 1, windowhat = what, lw = 4sigma, kmax = 20.0)
 end
 
-@testset "ltkm3dd matches analytic Gaussian pot/grad at targets" begin
+@testset "ltkm3dd matches analytic Gaussian gradient at targets" begin
     rng = MersenneTwister(1234)
     sources = rand(rng, 3, 8)
     charges = randn(rng, 8)
@@ -196,18 +196,17 @@ end
     k_max = gaussian_kmax_from_tol(sigma, 1e-12)
 
     out = ltkm3dd(1e-12, sources; charges, targets, pg = 0, pgt = 2, windowhat = what, lw = l_w, kmax = k_max)
-    ref_pot, ref_grad = gaussian_pairwise_long_range(sources, charges, targets, sigma)
+    _, ref_grad = gaussian_pairwise_long_range(sources, charges, targets, sigma)
 
     @test out.ier == 0
     @test isnothing(out.pot)
     @test isnothing(out.grad)
-    @test length(out.pottarg) == size(targets, 2)
+    @test isnothing(out.pottarg)
     @test size(out.gradtarg) == size(targets)
-    @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 2e-10
     @test norm(out.gradtarg .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
-@testset "ltkm3dd matches analytic Gaussian pot/grad at sources without self term" begin
+@testset "ltkm3dd matches analytic Gaussian gradient at sources without self term" begin
     rng = MersenneTwister(20260310)
     sources = rand(rng, 3, 8)
     charges = randn(rng, 8)
@@ -219,14 +218,13 @@ end
     k_max = gaussian_kmax_from_tol(sigma, 1e-12)
 
     out = ltkm3dd(1e-12, sources; charges, pg = 2, pgt = 0, windowhat = what, lw = l_w, kmax = k_max)
-    ref_pot, ref_grad = gaussian_pairwise_long_range(sources, charges, sources, sigma; dropdiag = true)
+    _, ref_grad = gaussian_pairwise_long_range(sources, charges, sources, sigma; dropdiag = true)
 
     @test out.ier == 0
-    @test length(out.pot) == size(sources, 2)
+    @test isnothing(out.pot)
     @test size(out.grad) == size(sources)
     @test isnothing(out.pottarg)
     @test isnothing(out.gradtarg)
-    @test norm(out.pot .- ref_pot) / norm(ref_pot) < 1e-10
     @test norm(out.grad .- ref_grad) / norm(ref_grad) < 5e-11
 end
 
@@ -245,8 +243,8 @@ end
     out = ltkm3dd(1e-12, sources; charges, targets, pg = 2, pgt = 2, windowhat = what, lw = l_w, kmax = k_max)
 
     @test out.ier == 0
-    @test length(out.pot) == size(sources, 2)
+    @test isnothing(out.pot)
     @test size(out.grad) == size(sources)
-    @test length(out.pottarg) == size(targets, 2)
+    @test isnothing(out.pottarg)
     @test size(out.gradtarg) == size(targets)
 end
