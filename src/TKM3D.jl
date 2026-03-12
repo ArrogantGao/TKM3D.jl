@@ -5,7 +5,8 @@ using FINUFFT
 using LinearAlgebra
 using SpecialFunctions
 
-export ltkm3dd, ltkm3dc, estimate_kcut3dc, TKMVals, KCut3DCResult
+export ltkm3dd, ltkm3dc, estimate_kcut3dc
+export TKMVals, KCut3DCResult
 
 include("common.jl")
 include("discrete.jl")
