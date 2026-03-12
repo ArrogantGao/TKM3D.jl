@@ -216,7 +216,12 @@ function ltkm3dc(
     q = Vector{float(eltype(charges))}(charges)
     length(q) == size(src, 2) || throw(ArgumentError("number of charges must match number of sources"))
 
-    resolved_kmax = isnothing(kmax) ? _ltkm3dc_estimate_kmax(src) : Float64(kmax)
+    resolved_kmax = if isnothing(kmax)
+        cut = estimate_kcut3dc(src; charges = q, tol = eps, eps = eps)
+        max(Float64(cut.kcut), Float64(minimum(cut.Δk)))
+    else
+        Float64(kmax)
+    end
     resolved_kmax > 0 || throw(ArgumentError("kmax must be positive"))
 
     pot = nothing

@@ -201,6 +201,28 @@ end
     @test norm(out.pottarg .- ref_pot) / norm(ref_pot) < 2e-2
 end
 
+@testset "ltkm3dc without kmax uses estimate_kcut3dc" begin
+    sigma = 0.18
+    center = (-0.05, 0.12, -0.08)
+    region = sigma * sqrt(2.0 * log(1.0e12))
+    sources, charges = make_uniform_gaussian_quadrature(16, region, center, sigma)
+    targets = make_targets_3xn([
+        (-0.20, -0.10, 0.10),
+        (0.05, 0.15, -0.05),
+        (0.25, -0.15, 0.00),
+    ])
+
+    cut = estimate_kcut3dc(sources; charges, tol = 1e-12, eps = 1e-12)
+    out_auto = ltkm3dc(1e-12, sources; charges, targets, pgt = 1)
+    out_cut = ltkm3dc(1e-12, sources; charges, targets, pgt = 1, kmax = cut.kcut)
+
+    @test out_auto.ier == 0
+    @test isnothing(out_auto.pot)
+    @test isnothing(out_auto.grad)
+    @test isnothing(out_auto.gradtarg)
+    @test isapprox(out_auto.pottarg, out_cut.pottarg; rtol = 1e-12, atol = 1e-12)
+end
+
 @testset "ltkm3dc source and target outputs" begin
     sigma = 0.16
     center = (0.0, 0.0, 0.0)
