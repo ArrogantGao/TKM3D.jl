@@ -3,4 +3,5 @@ using Test
 
 @testset "TKM3D.jl" begin
     include("discrete.jl")
+    include("continuous.jl")
 end

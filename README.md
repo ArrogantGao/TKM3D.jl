@@ -9,36 +9,55 @@ Implementation of the truncated kernel method for 3D systems with `FINUFFT`.
 
 ## Current Status
 
-The current code implements only the **discrete long-range Laplace solver** `ltkm3dd`.
+The current code implements:
 
-It evaluates the windowed long-range interaction
+- the **discrete long-range Laplace solver** `ltkm3dd`
+- the **continuous free-space Laplace solver** `ltkm3dc`
+
+The discrete solver evaluates the windowed long-range interaction
 ```math
 \phi(y) = \int_{\Omega'} \sum_i \frac{W(x - x_i)}{4 \pi |y - x|} q_i \, dx,
 ```
 where `W` is a smooth window, for example the Gaussian window used in Ewald
 summation.
 
-The continuous interface `ltkm3dc` is not implemented yet.
+The continuous solver evaluates
+```math
+\phi(y) = \int_{\Omega} \frac{\rho(x)}{4 \pi |y - x|} \, dx,
+```
+using arbitrary quadrature points with preweighted masses supplied through
+`charges`.
 
 ## Public API
 
-The current entry point is
+The public entry points are
 
 `ltkm3dd(eps, sources; charges, targets=nothing, pg=0, pgt=0, windowhat, lw, kmax)`
+
+and
+
+`ltkm3dc(eps, sources; charges, targets=nothing, pg=0, pgt=0, kmax=nothing)`
 
 with FMM3D-like source and target output flags.
 
 ### Arguments
 
-- `eps`: requested spread/interpolation tolerance
+- `eps`: requested NUFFT tolerance
 - `sources`: source coordinates in `3 x ns` layout
-- `charges`: source strengths, length `ns`
-- `targets`: optional target coordinates in `3 x nt` layout
+- `charges`: source data, length `ns`
 - `pg`: source output selector
 - `pgt`: target output selector
+- `targets`: optional target coordinates in `3 x nt` layout
+
+Discrete-only arguments:
+
 - `windowhat(k)`: radial Fourier transform of the window
 - `lw`: effective real-space support of the window
 - `kmax`: Fourier truncation radius
+
+Continuous-only argument:
+
+- `kmax`: Fourier truncation radius, or `nothing` to estimate it from average source spacing
 
 ### Output Flags
 
@@ -51,7 +70,7 @@ with FMM3D-like source and target output flags.
 
 ### Return Value
 
-`ltkm3dd` returns a `TKMVals` object with fields:
+Both solvers return a `TKMVals` object with fields:
 
 - `pot`: source potential, length `ns`, or `nothing`
 - `grad`: source gradient, size `3 x ns`, or `nothing`
@@ -87,6 +106,25 @@ pot_src = out.pot
 grad_src = out.grad
 pot_targ = out.pottarg
 grad_targ = out.gradtarg
+```
+
+Continuous example:
+
+```julia
+using TKM3D
+
+sources = rand(3, 1000)
+charges = rand(1000) .* 1e-3  # preweighted quadrature masses
+targets = rand(3, 20)
+
+out = ltkm3dc(
+    1e-12,
+    sources;
+    charges,
+    targets,
+    pgt = 2,
+    kmax = 20.0,
+)
 ```
 
 ## Numerical Method
@@ -125,14 +163,15 @@ interpolation step.
 
 - `sources` and `targets` use FMM3D-style `3 x N` and `3 x M` layouts
 - only charge sources are supported; dipole inputs are not implemented
-- `windowhat(k)` is the radial Fourier transform of the window
 - `pg` and `pgt` support `0`, `1`, and `2`
 - gradients are returned as `3 x N` and `3 x M` matrices
-- source potentials omit the diagonal self interaction
+- `ltkm3dd` expects `windowhat(k)` to be the radial Fourier transform of the window
+- `ltkm3dd` source potentials omit the diagonal self interaction
 - source self gradients are not corrected separately; for the symmetric Gaussian
   long-range kernel used in tests, the self gradient is zero
 - the current spread-only backend uses an ES spreader kernel internally
-- only the discrete Laplace long-range path is implemented
+- `ltkm3dc` expects `charges` to be preweighted quadrature masses
+- `ltkm3dc(...; kmax=nothing)` estimates Nyquist from average positive source-coordinate gaps, so explicit `kmax` is more reliable for strongly irregular point clouds
 
 ## Validation
 
@@ -147,3 +186,7 @@ long-range potential and gradient for:
 With the current spread-only backend, the Gaussian long-range tests pass at
 roughly `1e-10` relative error for potential and `5e-11` relative error for
 gradients on the tested random systems.
+
+The continuous solver is validated against the analytic Gaussian free-space
+potential and gradient using preweighted quadrature masses, and also exercises
+the `kmax = nothing` spacing heuristic on a uniform source cloud.
